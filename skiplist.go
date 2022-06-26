@@ -1,51 +1,23 @@
-// MIT License
-//
-// Copyright (c) 2018 Maurice Tollmien (maurice.tollmien@gmail.com)
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
-// Package skiplist is an implementation of a skiplist to store elements in increasing order.
-// It allows finding, insertion and deletion operations in approximately O(n log(n)).
-// Additionally, there are methods for retrieving the next and previous element as well as changing the actual value
-// without the need for re-insertion (as long as the key stays the same!)
-// Skiplist is a fast alternative to a balanced tree.
 package skiplist
 
 import (
 	"fmt"
-	"math"
 	"math/bits"
 	"math/rand"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 const (
 	// maxLevel denotes the maximum height of the skiplist. This height will keep the skiplist
-	// efficient for up to 34m entries. If there is a need for much more, please adjust this constant accordingly.
 	maxLevel = 25
-	eps      = 0.00001
 )
 
 // ListElement is the interface to implement for elements that are inserted into the skiplist.
 type ListElement interface {
-	// ExtractKey() returns a float64 representation of the key that is used for insertion/deletion/find. It needs to establish an order over all elements
-	ExtractKey() float64
+	// ExtractKey() returns a Decimal representation of the key that is used for insertion/deletion/find. It needs to establish an order over all elements
+	ExtractKey() decimal.Decimal
 	// A string representation of the element. Can be used for pretty-printing the list. Otherwise just return an empty string.
 	String() string
 }
@@ -55,30 +27,27 @@ type ListElement interface {
 type SkipListElement struct {
 	next  [maxLevel]*SkipListElement
 	level int
-	key   float64
+	key   decimal.Decimal
 	value ListElement
 	prev  *SkipListElement
 }
 
 // SkipList is the actual skiplist representation.
-// It saves all nodes accessible from the start and end and keeps track of element count, eps and levels.
+// It saves all nodes accessible from the start and end and keeps track of element count and levels.
 type SkipList struct {
 	startLevels  [maxLevel]*SkipListElement
 	endLevels    [maxLevel]*SkipListElement
 	maxNewLevel  int
 	maxLevel     int
 	elementCount int
-	eps          float64
 }
 
 // NewSeedEps returns a new empty, initialized Skiplist.
 // Given a seed, a deterministic height/list behaviour can be achieved.
-// Eps is used to compare keys given by the ExtractKey() function on equality.
-func NewSeedEps(seed int64, eps float64) SkipList {
+func NewSeed(seed int64) SkipList {
 
 	// Initialize random number generator.
 	rand.Seed(seed)
-	//fmt.Printf("SkipList seed: %v\n", seed)
 
 	list := SkipList{
 		startLevels:  [maxLevel]*SkipListElement{},
@@ -86,27 +55,19 @@ func NewSeedEps(seed int64, eps float64) SkipList {
 		maxNewLevel:  maxLevel,
 		maxLevel:     0,
 		elementCount: 0,
-		eps:          eps,
 	}
 
 	return list
 }
 
-// NewEps returns a new empty, initialized Skiplist.
-// Eps is used to compare keys given by the ExtractKey() function on equality.
-func NewEps(eps float64) SkipList {
-	return NewSeedEps(time.Now().UTC().UnixNano(), eps)
-}
-
-// NewSeed returns a new empty, initialized Skiplist.
-// Given a seed, a deterministic height/list behaviour can be achieved.
-func NewSeed(seed int64) SkipList {
-	return NewSeedEps(seed, eps)
-}
-
 // New returns a new empty, initialized Skiplist.
 func New() SkipList {
-	return NewSeedEps(time.Now().UTC().UnixNano(), eps)
+	return NewSeed(time.Now().UTC().UnixNano())
+}
+
+// NewEps is equal New, just for compatibility
+func NewEps(f float64) SkipList {
+	return NewSeed(time.Now().UTC().UnixNano())
 }
 
 // IsEmpty checks, if the skiplist is empty.
@@ -127,17 +88,17 @@ func (t *SkipList) generateLevel(maxLevel int) int {
 	return level
 }
 
-func (t *SkipList) findEntryIndex(key float64, level int) int {
+func (t *SkipList) findEntryIndex(key decimal.Decimal, level int) int {
 	// Find good entry point so we don't accidentally skip half the list.
 	for i := t.maxLevel; i >= 0; i-- {
-		if t.startLevels[i] != nil && t.startLevels[i].key <= key || i <= level {
+		if t.startLevels[i] != nil && t.startLevels[i].key.LessThanOrEqual(key) || i <= level {
 			return i
 		}
 	}
 	return 0
 }
 
-func (t *SkipList) findExtended(key float64, findGreaterOrEqual bool) (foundElem *SkipListElement, ok bool) {
+func (t *SkipList) findExtended(key decimal.Decimal, findGreaterOrEqual bool) (foundElem *SkipListElement, ok bool) {
 
 	foundElem = nil
 	ok = false
@@ -153,14 +114,14 @@ func (t *SkipList) findExtended(key float64, findGreaterOrEqual bool) (foundElem
 	nextNode := currentNode
 
 	// In case, that our first element is already greater-or-equal!
-	if findGreaterOrEqual && currentNode.key > key {
+	if findGreaterOrEqual && currentNode.key.GreaterThan(key) {
 		foundElem = currentNode
 		ok = true
 		return
 	}
 
 	for {
-		if math.Abs(currentNode.key-key) <= t.eps {
+		if currentNode.key.Equal(key) {
 			foundElem = currentNode
 			ok = true
 			return
@@ -169,14 +130,14 @@ func (t *SkipList) findExtended(key float64, findGreaterOrEqual bool) (foundElem
 		nextNode = currentNode.next[index]
 
 		// Which direction are we continuing next time?
-		if nextNode != nil && nextNode.key <= key {
+		if nextNode != nil && nextNode.key.LessThanOrEqual(key) {
 			// Go right
 			currentNode = nextNode
 		} else {
 			if index > 0 {
 
 				// Early exit
-				if currentNode.next[0] != nil && math.Abs(currentNode.next[0].key-key) <= t.eps {
+				if currentNode.next[0] != nil && currentNode.next[0].key.Equal(key) {
 					foundElem = currentNode.next[0]
 					ok = true
 					return
@@ -248,7 +209,7 @@ func (t *SkipList) Delete(e ListElement) {
 		}
 
 		// Found and remove!
-		if nextNode != nil && math.Abs(nextNode.key-key) <= t.eps {
+		if nextNode != nil && nextNode.key.Equal(key) {
 
 			if currentNode != nil {
 				currentNode.next[index] = nextNode.next[index]
@@ -277,7 +238,7 @@ func (t *SkipList) Delete(e ListElement) {
 			nextNode.next[index] = nil
 		}
 
-		if nextNode != nil && nextNode.key < key {
+		if nextNode != nil && nextNode.key.LessThan(key) {
 			// Go right
 			currentNode = nextNode
 		} else {
@@ -319,8 +280,8 @@ func (t *SkipList) Insert(e ListElement) {
 	newFirst := true
 	newLast := true
 	if !t.IsEmpty() {
-		newFirst = elem.key < t.startLevels[0].key
-		newLast = elem.key > t.endLevels[0].key
+		newFirst = elem.key.LessThan(t.startLevels[0].key)
+		newLast = elem.key.GreaterThan(t.endLevels[0].key)
 	}
 
 	normallyInserted := false
@@ -342,7 +303,7 @@ func (t *SkipList) Insert(e ListElement) {
 			}
 
 			// Connect node to next
-			if index <= level && (nextNode == nil || nextNode.key > elem.key) {
+			if index <= level && (nextNode == nil || nextNode.key.GreaterThan(elem.key)) {
 				elem.next[index] = nextNode
 				if currentNode != nil {
 					currentNode.next[index] = elem
@@ -355,7 +316,7 @@ func (t *SkipList) Insert(e ListElement) {
 				}
 			}
 
-			if nextNode != nil && nextNode.key <= elem.key {
+			if nextNode != nil && nextNode.key.LessThanOrEqual(elem.key) {
 				// Go right
 				currentNode = nextNode
 			} else {
@@ -375,7 +336,7 @@ func (t *SkipList) Insert(e ListElement) {
 
 		if newFirst || normallyInserted {
 
-			if t.startLevels[i] == nil || t.startLevels[i].key > elem.key {
+			if t.startLevels[i] == nil || t.startLevels[i].key.GreaterThan(elem.key) {
 				if i == 0 && t.startLevels[i] != nil {
 					t.startLevels[i].prev = elem
 				}
@@ -405,7 +366,7 @@ func (t *SkipList) Insert(e ListElement) {
 			}
 
 			// Link the startLevels to this element!
-			if t.startLevels[i] == nil || t.startLevels[i].key > elem.key {
+			if t.startLevels[i] == nil || t.startLevels[i].key.GreaterThan(elem.key) {
 				t.startLevels[i] = elem
 			}
 
@@ -464,7 +425,7 @@ func (t *SkipList) GetNodeCount() int {
 // ok is an indicator, wether the value is actually changed.
 func (t *SkipList) ChangeValue(e *SkipListElement, newValue ListElement) (ok bool) {
 	// The key needs to stay correct, so this is very important!
-	if math.Abs(newValue.ExtractKey() - e.key) <= t.eps {
+	if newValue.ExtractKey().Equal(e.key) {
 		e.value = newValue
 		ok = true
 	} else {
@@ -516,7 +477,8 @@ func (t *SkipList) String() string {
 				}
 				s += fmt.Sprintf("[%v|%v]", prev, next)
 			} else {
-				s += fmt.Sprintf("[%v]", next)
+				s += fmt.Sprintf("[%v]",
+					next)
 			}
 			if i < node.level {
 				s += " -> "

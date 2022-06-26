@@ -6,7 +6,8 @@ import (
 	"math/rand"
 	"testing"
 	"time"
-	//"github.com/pkg/profile"
+
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -15,8 +16,8 @@ const (
 
 type Element int
 
-func (e Element) ExtractKey() float64 {
-	return float64(e)
+func (e Element) ExtractKey() decimal.Decimal {
+	return decimal.NewFromInt(int64(e))
 }
 func (e Element) String() string {
 	return fmt.Sprintf("%03d", e)
@@ -24,8 +25,8 @@ func (e Element) String() string {
 
 type FloatElement float64
 
-func (e FloatElement) ExtractKey() float64 {
-	return float64(e)
+func (e FloatElement) ExtractKey() decimal.Decimal {
+	return decimal.NewFromFloat(float64(e))
 }
 func (e FloatElement) String() string {
 	return fmt.Sprintf("%.3f", e)
@@ -36,8 +37,8 @@ type ComplexElement struct {
 	S string
 }
 
-func (e ComplexElement) ExtractKey() float64 {
-	return float64(e.E)
+func (e ComplexElement) ExtractKey() decimal.Decimal {
+	return decimal.NewFromInt(int64(e.E))
 }
 func (e ComplexElement) String() string {
 	return fmt.Sprintf("%03d", e.E)
